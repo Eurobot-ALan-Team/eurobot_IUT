@@ -6,4 +6,16 @@ K
 F http://www.ti.com/lit/ds/symlink/ne555.pdf
 $ENDCMP
 #
+$CMP TPS54531DDA
+D 3.5V to 28V Input, 5A, 570kHz Step-Down Converter with Eco-mode
+K
+F http://www.ti.com/lit/gpn/tps54531
+$ENDCMP
+#
+$CMP TPS3711DDCT
+D 36-V Voltage Detector
+K
+F https://www.ti.com/lit/ds/symlink/tps3711.pdf?ts=1607065144199&ref_url=https%253A%252F%252Fwww.ti.com%252Fstore%252Fti%252Fen%252Fp%252Fproduct%252F%253Fp%253DTPS3711DDCT%2526keyMatch%253DTPS3711DDCT%2526tisearch%253DSearch-EN-everything%2526usecase%253DO
+$ENDCMP
+#
 #End Doc Library
