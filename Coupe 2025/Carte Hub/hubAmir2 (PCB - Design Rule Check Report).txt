@@ -1,0 +1,68 @@
+Design Rule Check Report
+------------------------
+
+Report Written:     Monday, December 02, 2024
+Design Path:        C:\Users\alan\Desktop\git_robot\eurobot_IUT\Coupe 2025\Carte Hub\hubAmir2.pcb
+Design Title:       
+Created:            29/10/2024 19:27:01
+Last Saved:         17/11/2024 18:27:19
+Editing Time:       23 min
+Units:              mm (precision 1)
+
+
+Results
+=======
+
+Track to Pad Error (T-P) between (529.8 495.5) and (530.4 494.9) on Layer "Bottom Copper".
+    Error between Component Pad SV6.1 (Net 'GND') and Track (Net '+5.4'), Gap is 0.4 needs to be 0.5.
+
+Number of errors found : 1
+
+
+Settings
+========
+
+
+Spacings
+
+=========
+
+Tracks        Yes
+Pads and Vias Yes
+Shapes        Yes
+Text          Yes
+Board         Yes
+Drills        Yes
+Components    No
+
+
+Manufacturing
+
+==============
+
+Drill Breakout                  No
+Drill Backoff                   No
+Silkscreen Overlap              No
+Copper Text In Board            No
+Min Track Width                 No
+Min Annular Ring                No
+Min Paste Size                  No
+Vias In Pads                    No
+Unplated Vias                   No
+Unplated Pads With Inner Tracks No
+
+
+Nets
+
+=====
+
+Net Completion               Yes
+Dangling Tracks              Yes
+Net Track Length Differences No
+Nets without Components      No
+Nets on No Connect pins      No
+Nets on No Connect pins      No
+
+
+
+End Of Report.
