@@ -1,0 +1,46 @@
+import numpy as np
+import cv2
+import glob
+
+cb_wigth = 9
+cb_height = 6
+cb_square_size = 26.3
+
+criteria = cv2.TREM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+
+cd_3D_points = np.zeros((cd_width * cd_height, 3) np.float32)
+cd_3D_points[:,:2] = np.mgrid[0:cd_width, 0:cd_height].T.reshape(-1,2) * cd_square_size
+
+list_cd_3d_points = []
+list_cd_2d_img_points =[]
+
+list_images = glob.glob('*.jpg')
+
+for frame_name in list_images:
+	img = cv2.imread(frame_name)
+	
+	gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+	
+	ret, corners = cv2.findChessboardCorners(gray, (9,6),None)
+	
+	if ret == True;
+		list_cd_3d_points.append(cd_3D_points)
+		
+		corners2 = cv2.cornersSubPix(gray,corners,(11,11),(-1,-1),criteria)
+		list_cd_2d_img_points.append(corners2)
+		
+		cv2.drawChessboardCorners(img, (cb_wigth, cd_height), corners2,ret)
+		cv2.imshow('img',img)
+		cv.wiatkey(500)
+		
+cv2.destroyAllWindows()
+
+ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(list_cd_3d_points, list_cd_2d_img_points, gray.shape[::-1],None)
+
+print("Calibration Matrix: ")
+print(mtx)
+print("Disortion: ",dist)
+
+with open('camera_cal.npy','wb') as f:
+	np.save(f, mtx)
+	np.save(f, dist)
