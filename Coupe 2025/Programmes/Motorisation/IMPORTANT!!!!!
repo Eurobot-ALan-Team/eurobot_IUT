@@ -1,0 +1,9 @@
+- Fonction distance basé sur une courbe de position en 3 parties en lui donnant une accélération max et une vitesse max ( recherche googles images : profil trapézoïdale de vitesse / LSPB )
+
+- Changer les variables de dimensions
+
+- Attention aux comptages de crans des encodeurs ( il faut debug )
+
+- Enlever la partie bus CAN
+
+Au pire contactez BOUZIDI Tallal
