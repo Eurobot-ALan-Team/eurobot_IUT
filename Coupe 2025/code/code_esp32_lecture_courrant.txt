@@ -1,0 +1,77 @@
+#include <Wire.h>
+#include <SDL_Arduino_INA3221.h>
+
+SDL_Arduino_INA3221 ina3221;
+
+// the three channels of the INA3221 named for SunAirPlus Solar Power Controller channels (www.switchdoc.com)
+#define CHANNEL1 1
+#define CHANNEL2 2
+#define CHANNEL3 3
+#define correctionchannel1 0.9400
+#define correctionchannel2 0.9440
+#define correctionchannel3 0.9506
+#define correctionerreurchannel1 0.0221
+void setup(void) 
+{
+  
+Serial.begin(921600);
+Serial.println("SDA_INA3221_Test");
+Serial.println("Measuring voltage and current with ina3221 ...");
+ina3221.begin();
+}
+
+void loop(void) 
+{
+
+Serial.println("------------------------------");
+float shuntvoltage1 = 0;
+float busvoltage1 = 0;
+float current_mA1 = 0;
+float loadvoltage1 = 0;
+
+float shuntvoltage2 = 0;
+float busvoltage2 = 0;
+float current_mA2 = 0;
+float loadvoltage2 = 0;
+
+busvoltage2 = ina3221.getBusVoltage_V(CHANNEL2);
+shuntvoltage2 = ina3221.getShuntVoltage_mV(CHANNEL2);
+current_mA2 = ina3221.getCurrent_mA(CHANNEL2)*correctionchannel2;
+loadvoltage2 = busvoltage2 + (shuntvoltage2 / 1000);
+
+Serial.print("CHANNEL2 Bus Voltage 2:   "); Serial.print(busvoltage2); Serial.println(" V");
+Serial.print("CHANNEL2 Shunt Voltage 2: "); Serial.print(shuntvoltage2); Serial.println(" mV");
+Serial.print("CHANNEL2 Load Voltage 2:  "); Serial.print(loadvoltage2); Serial.println(" V");
+Serial.print("CHANNEL2 Current 2:       "); Serial.print(current_mA2); Serial.println(" mA");
+Serial.println("");
+
+float shuntvoltage3 = 0;
+float busvoltage3 = 0;
+float current_mA3 = 0;
+float loadvoltage3 = 0;
+
+busvoltage3 = ina3221.getBusVoltage_V(CHANNEL3);
+shuntvoltage3 = ina3221.getShuntVoltage_mV(CHANNEL3);
+current_mA3 = ina3221.getCurrent_mA(CHANNEL3)*correctionchannel3;
+loadvoltage3 = busvoltage3 + (shuntvoltage3 / 1000);
+
+Serial.print("CHANNEL3 Bus Voltage 3:   "); Serial.print(busvoltage3); Serial.println(" V");
+Serial.print("CHANNEL3 Shunt Voltage 3: "); Serial.print(shuntvoltage3); Serial.println(" mV");
+Serial.print("CHANNEL3 Load Voltage 3:  "); Serial.print(loadvoltage3); Serial.println(" V");
+Serial.print("CHANNEL3 Current 3:       "); Serial.print(current_mA3); Serial.println(" mA");
+Serial.println("");
+
+
+busvoltage1 = ina3221.getBusVoltage_V(CHANNEL1);
+shuntvoltage1 = ina3221.getShuntVoltage_mV(CHANNEL1);
+current_mA1 = ina3221.getCurrent_mA(CHANNEL1)*correctionchannel1 - current_mA2*correctionerreurchannel1 - current_mA3*correctionerreurchannel1; 
+loadvoltage1 = busvoltage1 + (shuntvoltage1 / 1000);
+
+Serial.print("CHANNEL1 Bus Voltage:   "); Serial.print(busvoltage1); Serial.println(" V");
+Serial.print("CHANNEL1 Shunt Voltage: "); Serial.print(shuntvoltage1); Serial.println(" mV");
+Serial.print("CHANNEL1 Load Voltage:  "); Serial.print(loadvoltage1); Serial.println(" V");
+Serial.print("CHANNEL1 Current 1:     "); Serial.print(current_mA1); Serial.println(" mA");
+Serial.println("");
+
+delay(100);
+}
