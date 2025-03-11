@@ -1,0 +1,1319 @@
+#include "mbed.h"
+#include "math.h"
+#include "CANMsg.h"
+
+// Définition de constantes de débogage et de temporisation
+#define DEBUG 0         // 1 pour activer les printf de débogage, 0 pour les désactiver
+#define T 100           // Période PWM en microsecondes (utilisée pour motG/motD)
+#define Te 0.001        // Période d'échantillonnage pour l'asservissement (1 ms)
+#define Ti 1000         // Constante de temporisation (non utilisée directement ici)
+#define K 2             // Facteur de gain (utilisé dans l'asservissement)
+
+// Constantes physiques et géométriques
+#define mPULSE 0.0005       // Distance correspondante à un "pulse" d'encodeur (0.5 mm)
+#define ENTREAXE 0.10762    // Distance entre les roues (ou entre centres) [mm] (valeur indiquée en commentaire varie)
+#define DELAY 0.2           // Délai utilisé en fin de mouvement
+#define M_PI 3.14           // Valeur approximative de pi
+
+// Identifiants CAN pour la communication entre cartes/modules
+const unsigned int ID_carte_COMMANDE = 0x100;
+const unsigned int ID_carte_COMMANDE_RF = 0x101;
+
+const unsigned int ID_carte_CAMMERA = 0x200;
+const unsigned int ID_carte_CAMMERA_valaruco = 0x201;
+const unsigned int ID_carte_CAMMERA_poseobj = 0x202;
+const unsigned int ID_carte_CAMMERA_lidar_dange = 0x203;
+const unsigned int ID_carte_CAMMERA_lidar_pose = 0x204;
+const unsigned int ID_carte_CAMMERA_panneau_pose = 0x205;
+
+const unsigned int ID_carte_ENCODEUR = 0x300;
+const unsigned int ID_carte_ENCODEUR_distance = 0x301;
+const unsigned int ID_carte_ENCODEUR_rot_gauche = 0x302;
+const unsigned int ID_carte_ENCODEUR_rot_droite = 0x303;
+const unsigned int ID_carte_ENCODEUR_vitesse = 0x304;
+const unsigned int ID_carte_ENCODEUR_acceleration = 0x305;
+const unsigned int ID_carte_ENCODEUR_arret = 0x306;
+const unsigned int ID_carte_ENCODEUR_avance = 0x307;
+
+const unsigned int ID_carte_BRASBARILLET = 0x400;
+const unsigned int ID_carte_BARILLET_rota72 = 0x401;
+const unsigned int ID_carte_BARILLET_rotainverse72 = 0x402;
+const unsigned int ID_carte_BARILLET_RAZ = 0x403;
+const unsigned int ID_carte_VIS_monte = 0x404;
+const unsigned int ID_carte_VIS_descend = 0x405;
+const unsigned int ID_carte_BRAS_inte = 0x406;
+const unsigned int ID_carte_BRAS_exte = 0x407;
+const unsigned int ID_carte_PINCE_ouverte = 0x408;
+const unsigned int ID_carte_PINCE_fermee = 0x409;
+
+const unsigned int ID_carte_IHM = 0x500;
+const unsigned int ID_carte_IHM_distance = 0x501;
+const unsigned int ID_carte_IHM_rot_gauche = 0x502;
+const unsigned int ID_carte_IHM_rot_droite = 0x503;
+const unsigned int ID_carte_IHM_vitesse = 0x504;
+const unsigned int ID_carte_IHM_acceleration = 0x505;
+const unsigned int ID_carte_IHM_arret = 0x506;
+const unsigned int ID_carte_IHM_avance = 0x514;
+const unsigned int ID_carte_IHM_PinceO = 0x507;
+const unsigned int ID_carte_IHM_PinceF = 0x508;
+const unsigned int ID_carte_IHM_BrasExte = 0x509;
+const unsigned int ID_carte_IHM_BrasInte = 0x510;
+const unsigned int ID_carte_IHM_VisMonte = 0x511;
+const unsigned int ID_carte_IHM_VisDescend = 0x512;
+const unsigned int ID_carte_IHM_VisArret = 0x513;
+
+const unsigned int ID_carte_BAT = 0x600;
+const unsigned int ID_carte_BAT_demande_tension = 0x601;
+const unsigned int ID_carte_BAT_battterie_faible = 0x602;
+
+const unsigned int ma_carte = ID_carte_ENCODEUR;  // Identifiant de la carte sur laquelle ce code tourne
+
+// Initialisation des interfaces série et CAN pour la communication
+Serial pc(USBTX, USBRX);
+CAN can(D10, D2);  // CAN Rx sur D10, CAN Tx sur D2
+CANMsg rxMsg;
+CANMsg txMsg;
+
+// Variables globales d'asservissement
+float erra;  // Erreur pour la roue gauche
+float coma;  // (Variable déclarée mais non utilisée dans ce code)
+
+// Déclaration des capteurs et actionneurs
+
+// Capteur Lidar connecté sur la broche D13 (utilisé pour déclencher un flag)
+InterruptIn lidar(D13);
+
+// Commande des moteurs gauche et droite
+DigitalOut sensG(D11);  // Sens de rotation du moteur gauche
+PwmOut motG(A2);        // Vitesse du moteur gauche via PWM
+
+DigitalOut sensD(D12);  // Sens de rotation du moteur droit
+PwmOut motD(A3);        // Vitesse du moteur droit via PWM
+
+// Capteurs d'encodeur sur les roues (pour mesurer les rotations)
+InterruptIn AD(D6);     // Pour le côté droit, par exemple
+DigitalIn BD(D7);       // Autre signal d'encodeur pour le côté droit
+
+InterruptIn AG(D3);     // Pour le côté gauche
+DigitalIn BG(D4);       // Autre signal d'encodeur pour le côté gauche
+
+// LED de débogage
+DigitalOut led1(LED1);
+
+// Variables de comptage pour les encodeurs et états divers
+int cptGtotal = 0, cptDtotal = 0;  // Comptes totaux pour les roues gauche et droite
+int cptG = 0, cptD = 0;            // Comptes temporaires pour l'asservissement
+int idebug = 0;                  // Indice pour stocker les données de débogage
+int etat = 0, etatcan = 0;         // Variables d'état pour la machine à états et CAN
+int etathomologation = 1000;       // État pour homologation (non utilisé dans la version active)
+int distance_effectue = 0, rotation_fini = 0;
+int sauvegarde = 1;              // Flag de sauvegarde pour réinitialiser l'état
+
+// Positions en nombre de pulses (consignes et compteurs)
+float cPosG = 0, cPosD = 0;
+float erD, somErD = 0;
+float erG, somErG = 0;
+float cmdD = 0, cmdG = 0;
+int flag = 0;                    // Flag général (utilisé par exemple avec le Lidar)
+float cPos, VraicptG, VraicptD;
+float t0, t1, tA, t2A, t = 0, ordre_fait;
+int val = 0;                     // Valeur lue sur CAN
+float val2 = 0;
+
+// Tableau pour stocker temporairement les données CAN (non utilisé dans l'exemple de printMsg)
+int tab[8] = {};
+
+// Variables de consigne pour l'asservissement de la position
+float A = 0.2;  // Accélération maximale
+float V = 0.2;  // Vitesse maximale
+
+// Tableaux pour stocker les valeurs de débogage (temps, consigne, commandes envoyées, erreurs, etc.)
+float ValeursTemps[150], ValeursConsigneMetres[150], ValeursCommandeMotG[150], ValeursCommandeMotD[150];
+float ValeursErreursG[150], ValeursErreursD[150], ValeursCptG[150], ValeursCptD[150];
+float ValeursConsigneCransG[150], ValeursConsigneCransD[150];
+
+// Variables pour la distance parcourue
+float d_effectue, d_restante, distance_a_t0;
+
+// Déclaration des Ticker et Timer pour la gestion des interruptions périodiques
+Ticker tic;
+Ticker tac;
+Ticker tica;      // Ticker utilisé pour appeler la fonction d'asservissement "aser"
+Ticker ticDebug;
+Timer temps, chrono;
+Ticker ticval;
+Ticker ticFlag;
+Ticker ticFlagg;
+Ticker ticDistTot;
+Ticker ticLidar;
+Ticker ticDebugetat;
+
+// Fonctions d'interruption pour le comptage des encodeurs
+
+// Compte les pulses pour la roue gauche lors d'un front montant sur AG
+void countGr() {
+    if (BG == 0) {
+        cptG++;
+    } else {
+        cptG--;
+    }
+}
+
+// Compte avec ajustement pour la roue gauche lors d'un front descendant sur AG
+void countGf() {
+    if (BG == 1) {
+        cptGtotal++;
+        cptG++;
+    } else {
+        cptGtotal--;
+        cptG--;
+    }
+}
+
+// Compte les pulses pour la roue droite lors d'un front montant sur AD
+void countDr() {
+    if (BD == 0) {
+        cptDtotal--;
+        cptD--;
+    } else {
+        cptDtotal++;
+        cptD++;
+    }
+}
+
+// Compte pour la roue droite lors d'un front descendant sur AD
+void countDf() {
+    if (BD == 1) {
+        cptDtotal--;
+        cptD--;
+    } else {
+        cptDtotal++;
+        cptD++;
+    }
+}
+
+// Fonction de débogage qui affiche les compteurs d'encodeur
+void valcpt() {
+    printf("CptG : %d       CptD : %d      \r", cptG, cptD);
+}
+
+// Fonction qui borne une valeur entre -100 et 100
+int borne(int a) {
+    if (a > 100) a = 100;
+    if (a < -100) a = -100;
+    return a;
+}
+
+// Fonction pour commander les moteurs
+// Paramètres : g et d représentent les commandes (entre -100 et 100) pour la gauche et la droite
+void mot(int g, int d) {
+    g = borne(g);
+    d = borne(d);
+
+    // Commande du moteur gauche
+    if (g > 0) {
+        sensG.write(0);              // Sens de rotation
+        motG.write((g / 100.0));       // Vitesse proportionnelle
+    } else {
+        sensG.write(1);
+        motG.write((-g / 100.0));
+    }
+    // Commande du moteur droit
+    if (d > 0) {
+        sensD.write(1);
+        motD.write((d / 100.0));
+    } else {
+        sensD.write(0);
+        motD.write((-d / 100.0));
+    }
+}
+
+// Fonction de débogage qui enregistre diverses valeurs dans des tableaux
+void debug() {
+    ValeursTemps[idebug] = temps.read();
+    ValeursConsigneMetres[idebug] = cPos;
+    ValeursCommandeMotG[idebug] = 2 * erra;
+    ValeursCommandeMotD[idebug] = 2 * erD;
+    ValeursErreursG[idebug] = erra;
+    ValeursErreursD[idebug] = erD;
+    ValeursCptG[idebug] = cptG;
+    ValeursCptD[idebug] = cptD;
+    ValeursConsigneCransG[idebug] = cPosG;
+    ValeursConsigneCransD[idebug] = cPosD;
+    idebug++;
+
+    // Exemple de message de débogage (commenté ici)
+    // printf("etat : %d   cmdMot : %.2f    ErreurG : %.2f    cPosG : %.2f    cptG : %d   cPos : %.2f  \r", etat, cmdG, erG, cPosG, cptG, cPos);
+}
+
+// Fonctions de gestion du flag lié au Lidar
+// Ces fonctions sont appelées en interruption sur les fronts montants et descendants
+void EtatFlag1() {
+    flag = 1;
+}
+
+void EtatFlag0() {
+    flag = 0;
+}
+
+// Fonction alternative pour mettre à jour le flag via le Lidar
+void etatlidar() {
+    if (lidar.read() == 1) {
+        flag = 1;
+    }
+}
+
+// Fonction d'asservissement basique
+// Calcule l'erreur entre la consigne (cPosG, cPosD) et le compteur réel, et commande les moteurs
+void aser() {
+    erra = cPosG - cptG;
+    erD = cPosD - cptD;
+    mot(2 * erra, 2 * erD);  // Application d'un gain proportionnel
+}
+
+// Fonction pour asservir la distance parcourue (profil trapézoïdal ou triangulaire)
+// Paramètre d : distance à parcourir en mètres
+void distance(float d) {
+    int signe;
+    if (d > 0)
+        signe = 0;  // Mouvement vers l'avant
+    else {
+        signe = 1;  // Mouvement en marche arrière
+        d = -1 * d;
+    }
+
+    // Réinitialisation des compteurs d'encodeur
+    cptG = 0;
+    cptD = 0;
+
+    float dlim = V * V / A;  // Distance limite pour choisir entre profil trapèze et triangle
+
+    if (DEBUG) printf("\n\rDebut asservissement de distance... \n\rDistance a parcourir %.2f m... \n\r", d);
+
+    // Si la distance est supérieure à dlim, on utilise un profil trapézoïdal
+    if (d > dlim) {
+        float t0 = V / A;     // Temps d'accélération
+        float t1 = d / V;     // Temps de vitesse constante
+
+        if (DEBUG) printf("t0 : %.2f   t1 : %.2f   duree prevue : %.1f s \n\r", t0, t1, t0 + t1);
+
+        temps.reset();
+        temps.start();
+
+        cPosG = 0;
+        cPosD = 0;
+        idebug = 0;
+
+        // Démarrage de l'asservissement périodique
+        tica.attach(&aser, Te);
+
+        float t = 0;
+        // Phase d'accélération
+        while (t < t0) {
+            t = temps.read();
+            cPos = A * t * t / 2.0;
+            if (DEBUG) printf("etat 1\n\r");
+            // Mise à jour de la consigne en fonction du signe
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+        }
+
+        // Phase de vitesse constante
+        while (t < t1) {
+            t = temps.read();
+            cPos = (A * t0 * t0 / 2.0) + (V * (t - t0));
+            if (DEBUG) printf("etat 2\n\r");
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+        }
+
+        // Phase de décélération
+        while (t < (t1 + t0)) {
+            t = temps.read();
+            cPos = ((A * t * t) / (-2.0)) + ((V + A * t1) * t) + ((-1 * A * t1 * t1) / 2.0) - (V * t1) + ((A * t0 * t0) / 2.0) + (V * (t1 - t0));
+            if (DEBUG) printf("etat 3\n\r");
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+        }
+
+        led1 = 0;
+        // Arrêt de l'asservissement périodique et des moteurs
+        tica.detach();
+        mot(0, 0);
+
+        // Délai final pour stabiliser la commande
+        while (t < (t0 + t1 + DELAY)) {
+            t = temps.read();
+            if (DEBUG) printf("etat4 \n\r");
+        }
+
+        if (DEBUG) printf("distance parcourue = %.2f m -- mode trapeze\n\r", d);
+    } else {  // Profil triangulaire pour de courtes distances
+        float tA = sqrt(d / A);
+        float t2A = 2 * tA;
+
+        if (DEBUG) printf("duree prevue : %.1f s \n\r", t2A);
+
+        temps.reset();
+        temps.start();
+
+        cPosG = 0;
+        cPosD = 0;
+        idebug = 0;
+
+        tica.attach(&aser, Te);
+
+        float t = 0;
+        // Accélération
+        while (t < tA) {
+            t = temps.read();
+            cPos = A * t * t / 2;
+            if (DEBUG) printf("etat1 \n\r");
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+        }
+        // Décélération
+        while (t < t2A) {
+            t = temps.read();
+            cPos = (2 * A * tA * t) - (A * t * t / 2) - d;
+            if (DEBUG) printf("etat2     t2A : %.2f     temps : %.2f \n\r", t2A, t);
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+        }
+        tica.detach();
+        mot(0, 0);
+        while (t < (t2A + DELAY)) {
+            t = temps.read();
+            if (DEBUG) printf("etat3 \n\r");
+        }
+        if (DEBUG) printf("distance parcourue = %.2f m -- mode triangle\n\r", d);
+    }
+    temps.stop();
+    temps.reset();
+}
+
+// Fonction pour effectuer une rotation de l'angle passé en degrés
+void rotation(float deg) {
+    int signe;
+    // Conversion de l'angle en une "distance" à parcourir en fonction de l'entraxe
+    float d = (deg * ENTREAXE * 3.14) / 180.0;
+    rotation_fini = 0;
+
+    if (d > 0)
+        signe = 0;  // Rotation dans un sens
+    else {
+        signe = 1;  // Rotation dans l'autre sens
+        d = -1 * d;
+    }
+
+    // Réinitialisation des compteurs d'encodeur
+    cptG = 0;
+    cptD = 0;
+
+    float dlim = V * V / A;  // Choix du profil de mouvement en fonction de la distance
+
+    if (DEBUG) printf("\n\rDebut asservissement de distance... \n\rDistance a parcourir %.2f m... \n\r", d);
+
+    if (d > dlim) {  // Profil trapézoïdal
+        float t0 = V / A;
+        float t1 = d / V;
+
+        if (DEBUG) printf("t0 : %.2f   t1 : %.2f   duree prevue : %.1f s \n\r", t0, t1, t0 + t1);
+
+        temps.reset();
+        temps.start();
+
+        cPosG = 0;
+        cPosD = 0;
+        idebug = 0;
+
+        tica.attach(&aser, Te);
+
+        float t = 0;
+        // Phase d'accélération
+        while (t < t0) {
+            t = temps.read();
+            cPos = A * t * t / 2.0;
+            if (signe == 0)
+                cPosG = -1 * cPos / mPULSE;  // Inversion de la consigne pour la rotation (roue opposée)
+            else
+                cPosG = 1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+        }
+        // Phase de vitesse constante
+        while (t < t1) {
+            t = temps.read();
+            cPos = (A * t0 * t0 / 2.0) + (V * (t - t0));
+            if (signe == 0)
+                cPosG = -1 * cPos / mPULSE;
+            else
+                cPosG = 1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+        }
+        // Phase de décélération
+        while (t < (t1 + t0)) {
+            t = temps.read();
+            cPos = ((A * t * t) / (-2.0)) + ((V + A * t1) * t) + ((-1 * A * t1 * t1) / 2.0) - (V * t1) + ((A * t0 * t0) / 2.0) + (V * (t1 - t0));
+            if (signe == 0)
+                cPosG = -1 * cPos / mPULSE;
+            else
+                cPosG = 1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+        }
+        led1 = 0;
+        tica.detach();
+        mot(0, 0);
+        while (t < (t0 + t1 + DELAY)) {
+            t = temps.read();
+        }
+        if (DEBUG) printf("distance parcourue = %.2f m -- mode trapeze\n\r", d);
+        rotation_fini = 1;
+    } else {  // Profil triangulaire pour rotation sur une faible "distance"
+        float tA = sqrt(d / A);
+        float t2A = 2 * tA;
+
+        if (DEBUG) printf("duree prevue : %.1f s \n\r", t2A);
+
+        temps.reset();
+        temps.start();
+
+        cPosG = 0;
+        cPosD = 0;
+        idebug = 0;
+
+        tica.attach(&aser, Te);
+
+        float t = 0;
+        // Accélération
+        while (t < tA) {
+            t = temps.read();
+            cPos = A * t * t / 2;
+            if (signe == 0)
+                cPosG = -1 * cPos / mPULSE;
+            else
+                cPosG = 1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+        }
+        // Décélération
+        while (t < t2A) {
+            t = temps.read();
+            cPos = (2 * A * tA * t) - (A * t * t / 2) - d;
+            if (signe == 0)
+                cPosG = -1 * cPos / mPULSE;
+            else
+                cPosG = 1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+        }
+        tica.detach();
+        mot(0, 0);
+        while (t < (t2A + DELAY)) {
+            t = temps.read();
+        }
+        rotation_fini = 1;
+        if (DEBUG) printf("distance parcourue = %.2f m -- mode triangle\n\r", d);
+    }
+    temps.stop();
+    temps.reset();
+}
+
+// Fonctions « flag » pour gérer des mouvements interrompus par un ordre (par exemple via le Lidar)
+// Ces fonctions gèrent des profils d'accélération/décélération en fonction d'un flag (interruption externe)
+
+// Avancer en utilisant un flag (exemple d'utilisation pour un arrêt anticipé)
+void rouleflag() {
+    int signe;
+    int profiltrapeze = 0, profiltrapeze2 = 0, profiltriangle = 0;
+    cptG = 0;
+    cptD = 0;
+
+    float dlim = V * V / A;
+    float t = 0, d;
+    float t0 = V / A, t1;
+    float tA, t2A;
+
+    temps.reset();
+    temps.start();
+    cPosG = 0;
+    cPosD = 0;
+    idebug = 0;
+
+    // Démarrer l'asservissement
+    tica.attach(&aser, Te);
+
+    // Phase d'accélération
+    while (t < t0 && profiltriangle == 0 && profiltrapeze == 0) {
+        t = temps.read();
+        cPos = A * t * t / 2;
+        if (DEBUG) printf("etat1 \n\r");
+        cPosG = cPos / mPULSE;
+        cPosD = cPos / mPULSE;
+        // Si un ordre d'arrêt est détecté via le flag
+        if (flag == 1) {
+            profiltriangle = 1;
+            d = 2 * cPos;
+            tA = temps.read();
+            t2A = 2 * tA;
+        } else if (flag == 0 && t >= t0) {
+            profiltrapeze = 1;
+        }
+    }
+
+    // Phase de vitesse constante
+    while (profiltrapeze == 1 && flag == 0) {
+        t = temps.read();
+        cPos = (A * t0 * t0 / 2.0) + (V * (t - t0));
+        if (DEBUG) printf("etat2 trapeze \n\r");
+        cPosG = cPos / mPULSE;
+        cPosD = cPos / mPULSE;
+        if (flag == 1) {
+            profiltrapeze2 = 1;
+            profiltrapeze = 0;
+            t1 = temps.read();
+        }
+    }
+
+    // Décélération en profil trapéze
+    while ((t < t0 + t1) && (profiltrapeze2 == 1)) {
+        t = temps.read();
+        cPos = ((A * t * t) / (-2.0)) + ((V + A * t1) * t) + ((-1 * A * t1 * t1) / 2.0) - (V * t1) + ((A * t0 * t0) / 2.0) + (V * (t1 - t0));
+        if (DEBUG) printf("etat3 trapeze \n\r");
+        cPosG = cPos / mPULSE;
+        cPosD = cPos / mPULSE;
+    }
+    while ((t < (t0 + t1 + DELAY)) && (profiltrapeze2 == 1 || flag == 1)) {
+        t = temps.read();
+        if (DEBUG) printf("etat fini trapeze \n\r");
+    }
+
+    // Décélération en profil triangle (si flag activé durant accélération)
+    while ((t < t2A) && (profiltriangle == 1)) {
+        t = temps.read();
+        cPos = (2 * A * tA * t) - (A * t * t / 2) - d;
+        if (DEBUG) printf("etat2 triangle \n\r");
+        cPosG = cPos / mPULSE;
+        cPosD = cPos / mPULSE;
+    }
+    while ((t < (t2A + DELAY)) && (profiltriangle == 1 || flag == 1)) {
+        t = temps.read();
+        if (DEBUG) printf("etat fini triangle \n\r");
+    }
+
+    tica.detach();
+    mot(0, 0);
+    flag = 0;
+    temps.stop();
+    temps.reset();
+}
+
+// Fonction similaire à rouleflag() mais pour la marche arrière
+void reculeflag() {
+    int signe;
+    int profiltrapeze = 0, profiltrapeze2 = 0, profiltriangle = 0;
+    cptG = 0;
+    cptD = 0;
+    float dlim = V * V / A;
+    float t = 0, d;
+    float t0 = V / A, t1;
+    float tA, t2A;
+
+    temps.reset();
+    temps.start();
+    cPosG = 0;
+    cPosD = 0;
+    idebug = 0;
+    tica.attach(&aser, Te);
+
+    while (t < t0 && profiltriangle == 0 && profiltrapeze == 0) {
+        t = temps.read();
+        cPos = A * t * t / 2;
+        if (DEBUG) printf("etat1 \n\r");
+        // Pour la marche arrière, la consigne est négative
+        cPosG = -cPos / mPULSE;
+        cPosD = -cPos / mPULSE;
+        if (flag == 1) {
+            profiltriangle = 1;
+            d = 2 * cPos;
+            tA = temps.read();
+            t2A = 2 * tA;
+        } else if (flag == 0 && t >= t0) {
+            profiltrapeze = 1;
+        }
+    }
+    while (profiltrapeze == 1 && flag == 0) {
+        t = temps.read();
+        cPos = (A * t0 * t0 / 2.0) + (V * (t - t0));
+        if (DEBUG) printf("etat2 trapeze \n\r");
+        cPosG = -cPos / mPULSE;
+        cPosD = -cPos / mPULSE;
+        if (flag == 1) {
+            profiltrapeze2 = 1;
+            profiltrapeze = 0;
+            t1 = temps.read();
+        }
+    }
+    while ((t < t0 + t1) && (profiltrapeze2 == 1)) {
+        t = temps.read();
+        cPos = ((A * t * t) / (-2.0)) + ((V + A * t1) * t) + ((-1 * A * t1 * t1) / 2.0) - (V * t1) + ((A * t0 * t0) / 2.0) + (V * (t1 - t0));
+        if (DEBUG) printf("etat3 trapeze \n\r");
+        cPosG = -cPos / mPULSE;
+        cPosD = -cPos / mPULSE;
+    }
+    while (t < (t0 + t1 + DELAY) && profiltrapeze2 == 1) {
+        t = temps.read();
+        if (DEBUG) printf("etat fini trapeze \n\r");
+    }
+    while ((t < t2A) && (profiltriangle == 1)) {
+        t = temps.read();
+        cPos = (2 * A * tA * t) - (A * t * t / 2) - d;
+        if (DEBUG) printf("etat2 triangle \n\r");
+        cPosG = -cPos / mPULSE;
+        cPosD = -cPos / mPULSE;
+    }
+    while ((t < (t2A + DELAY)) && (profiltriangle == 1)) {
+        t = temps.read();
+        if (DEBUG) printf("etat fini triangle \n\r");
+    }
+    tica.detach();
+    mot(0, 0);
+    flag = 0;
+    temps.stop();
+    temps.reset();
+}
+
+// Fonctions pour effectuer une rotation à droite et à gauche en utilisant un flag
+void rotadroiteflag() {
+    int signe;
+    int profiltrapeze = 0, profiltrapeze2 = 0, profiltriangle = 0;
+    cptG = 0;
+    cptD = 0;
+    float dlim = V * V / A;
+    float t = 0, d;
+    float t0 = V / A, t1;
+    float tA, t2A;
+
+    temps.reset();
+    temps.start();
+    cPosG = 0;
+    cPosD = 0;
+    idebug = 0;
+    tica.attach(&aser, Te);
+
+    while (t < t0 && profiltriangle == 0 && profiltrapeze == 0) {
+        t = temps.read();
+        cPos = A * t * t / 2;
+        if (DEBUG) printf("etat1 \n\r");
+        // Pour rotation à droite, on inverse la commande pour la roue droite
+        cPosG = cPos / mPULSE;
+        cPosD = -cPos / mPULSE;
+        if (flag == 1) {
+            profiltriangle = 1;
+            d = 2 * cPos;
+            tA = temps.read();
+            t2A = 2 * tA;
+        } else if (flag == 0 && t >= t0) {
+            profiltrapeze = 1;
+        }
+    }
+    while (profiltrapeze == 1 && flag == 0) {
+        t = temps.read();
+        cPos = (A * t0 * t0 / 2.0) + (V * (t - t0));
+        if (DEBUG) printf("etat2 trapeze \n\r");
+        cPosG = cPos / mPULSE;
+        cPosD = -cPos / mPULSE;
+        if (flag == 1) {
+            profiltrapeze2 = 1;
+            profiltrapeze = 0;
+            t1 = temps.read();
+        }
+    }
+    while ((t < t0 + t1) && (profiltrapeze2 == 1)) {
+        t = temps.read();
+        cPos = ((A * t * t) / (-2.0)) + ((V + A * t1) * t) + ((-1 * A * t1 * t1) / 2.0) - (V * t1) + ((A * t0 * t0) / 2.0) + (V * (t1 - t0));
+        if (DEBUG) printf("etat3 trapeze \n\r");
+        cPosG = cPos / mPULSE;
+        cPosD = -cPos / mPULSE;
+    }
+    while (t < (t0 + t1 + DELAY) && profiltrapeze2 == 1) {
+        t = temps.read();
+        if (DEBUG) printf("etat fini trapeze \n\r");
+    }
+    while ((t < t2A) && (profiltriangle == 1)) {
+        t = temps.read();
+        cPos = (2 * A * tA * t) - (A * t * t / 2) - d;
+        if (DEBUG) printf("etat2 triangle \n\r");
+        cPosG = cPos / mPULSE;
+        cPosD = -cPos / mPULSE;
+    }
+    while ((t < (t2A + DELAY)) && (profiltriangle == 1)) {
+        t = temps.read();
+        if (DEBUG) printf("etat fini triangle \n\r");
+    }
+    tica.detach();
+    mot(0, 0);
+    flag = 0;
+    temps.stop();
+    temps.reset();
+}
+
+void rotagaucheflag() {
+    int signe;
+    int profiltrapeze = 0, profiltrapeze2 = 0, profiltriangle = 0;
+    cptG = 0;
+    cptD = 0;
+    float dlim = V * V / A;
+    float t = 0, d;
+    float t0 = V / A, t1;
+    float tA, t2A;
+
+    temps.reset();
+    temps.start();
+    cPosG = 0;
+    cPosD = 0;
+    idebug = 0;
+    tica.attach(&aser, Te);
+
+    while (t < t0 && profiltriangle == 0 && profiltrapeze == 0) {
+        t = temps.read();
+        cPos = A * t * t / 2;
+        if (DEBUG) printf("etat1 \n\r");
+        // Pour rotation à gauche, on inverse la commande pour la roue gauche
+        cPosG = -cPos / mPULSE;
+        cPosD = cPos / mPULSE;
+        if (flag == 1) {
+            profiltriangle = 1;
+            d = 2 * cPos;
+            tA = temps.read();
+            t2A = 2 * tA;
+        } else if (flag == 0 && t >= t0) {
+            profiltrapeze = 1;
+        }
+    }
+    while (profiltrapeze == 1 && flag == 0) {
+        t = temps.read();
+        cPos = (A * t0 * t0 / 2.0) + (V * (t - t0));
+        if (DEBUG) printf("etat2 trapeze \n\r");
+        cPosG = -cPos / mPULSE;
+        cPosD = cPos / mPULSE;
+        if (flag == 1) {
+            profiltrapeze2 = 1;
+            profiltrapeze = 0;
+            t1 = temps.read();
+        }
+    }
+    while ((t < t0 + t1) && (profiltrapeze2 == 1)) {
+        t = temps.read();
+        cPos = ((A * t * t) / (-2.0)) + ((V + A * t1) * t) + ((-1 * A * t1 * t1) / 2.0) - (V * t1) + ((A * t0 * t0) / 2.0) + (V * (t1 - t0));
+        if (DEBUG) printf("etat3 trapeze \n\r");
+        cPosG = -cPos / mPULSE;
+        cPosD = cPos / mPULSE;
+    }
+    while ((t < (t0 + t1 + DELAY)) && (profiltrapeze2 == 1)) {
+        t = temps.read();
+        if (DEBUG) printf("etat fini trapeze \n\r");
+    }
+    while ((t < t2A) && (profiltriangle == 1)) {
+        t = temps.read();
+        cPos = (2 * A * tA * t) - (A * t * t / 2) - d;
+        if (DEBUG) printf("etat2 triangle \n\r");
+        cPosG = -cPos / mPULSE;
+        cPosD = cPos / mPULSE;
+    }
+    while ((t < (t2A + DELAY)) && (profiltriangle == 1)) {
+        t = temps.read();
+        if (DEBUG) printf("etat fini triangle \n\r");
+    }
+    tica.detach();
+    mot(0, 0);
+    flag = 0;
+    temps.stop();
+    temps.reset();
+}
+
+// Machine à états pour avancer sur une distance donnée (MAE = Machine À États)
+// Cette fonction gère plusieurs états afin d'exécuter l'asservissement de la position de façon progressive
+void MAEavance(float d) {
+    int signe;
+    if (d > 0)
+        signe = 0;  // Avancer
+    else {
+        signe = 1;  // Reculer
+        d = -1 * d;
+    }
+    float dlim = V * V / A;  // Limite pour choisir le profil trapézoïdal ou triangulaire
+
+    // Initialisation des variables de la machine à états si nécessaire
+    if (sauvegarde == 1) {
+        sauvegarde = 0;
+        t = 0;
+        etat = 0;
+        distance_effectue = 0;
+        d_restante = d;
+        cptG = 0;
+        cptD = 0;
+        cPosG = 0;
+        cPosD = 0;
+        idebug = 0;
+        mot(0, 0);
+    }
+
+    // Transition entre états en fonction des conditions
+    switch (etat) {
+        case 0:
+            if (d_restante > dlim) {
+                etat = 1;
+                t0 = V / A;
+                t1 = d_restante / V;
+                temps.reset();
+                temps.start();
+                tica.attach(&aser, Te);
+            } else {
+                etat = 10;
+                tA = sqrt(d_restante / A);
+                t2A = 2 * tA;
+                temps.reset();
+                temps.start();
+                tica.attach(&aser, Te);
+            }
+            break;
+        case 1:
+            if (t >= t0) {
+                etat = 2;
+                distance_a_t0 = cPos;
+            }
+            if (flag == 1) {
+                etat = 50;
+                tA = t;
+                d_effectue = cPos * 2;
+            }
+            break;
+        case 2:
+            if (t >= t1) {
+                etat = 3;
+            }
+            if (flag == 1) {
+                etat = 60;
+                t1 = t;
+                d_effectue = distance_a_t0 + cPos;
+            }
+            break;
+        case 3:
+            if (t >= t0 + t1) {
+                etat = 4;
+                tica.detach();
+                mot(0, 0);
+            }
+            break;
+        case 4:
+            if (t >= t0 + t1 + DELAY) {
+                etat = 200;
+                sauvegarde = 1;
+                distance_effectue = 1;
+                temps.stop();
+                temps.reset();
+                mot(0, 0);
+            }
+            break;
+        case 10:
+            if (t >= tA) {
+                etat = 11;
+                tA = t;
+            }
+            if (flag == 1)
+                etat = 50;
+            break;
+        case 11:
+            if (t >= t2A) {
+                etat = 12;
+                tica.detach();
+                mot(0, 0);
+            }
+            break;
+        case 12:
+            if (t >= t2A + DELAY) {
+                etat = 200;
+                distance_effectue = 1;
+                sauvegarde = 1;
+                temps.stop();
+                temps.reset();
+                mot(0, 0);
+            }
+            break;
+        case 50:
+            if (t >= 2 * tA) {
+                etat = 51;
+                tica.detach();
+                mot(0, 0);
+            }
+            break;
+        case 51:
+            if (t >= 2 * tA + DELAY) {
+                etat = 52;
+                temps.stop();
+                temps.reset();
+                mot(0, 0);
+            }
+            break;
+        case 52:
+            etat = 100;
+            cptG = 0;
+            cptD = 0;
+            d_restante = d_restante - d_effectue;
+            mot(0, 0);
+            break;
+        case 60:
+            if (t >= t0 + t1) {
+                etat = 61;
+                tica.detach();
+                mot(0, 0);
+            }
+            break;
+        case 61:
+            if (t >= t0 + t1 + DELAY) {
+                etat = 62;
+                temps.stop();
+                temps.reset();
+                mot(0, 0);
+            }
+            break;
+        case 62:
+            etat = 100;
+            cptG = 0;
+            cptD = 0;
+            d_restante = d_restante - d_effectue;
+            mot(0, 0);
+            break;
+        case 100:
+            if (flag == 0) {
+                etat = 0;
+            }
+            break;
+        case 200:
+            break;
+    }
+
+    // Envoi des consignes aux moteurs en fonction de l'état courant
+    switch (etat) {
+        case 0:
+            break;  // En attente
+        case 1:
+            t = temps.read();
+            cPos = A * t * t / 2;
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+            break;
+        case 2:
+            t = temps.read();
+            cPos = (A * t0 * t0 / 2.0) + (V * (t - t0));
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+            break;
+        case 3:
+            t = temps.read();
+            cPos = ((A * t * t) / (-2.0)) + ((V + A * t1) * t) + ((-1 * A * t1 * t1) / 2.0) - (V * t1) + ((A * t0 * t0) / 2.0) + (V * (t1 - t0));
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+            break;
+        case 4:
+            t = temps.read();
+            break;  // Délai en fin de profil trapéze
+        case 10:
+            t = temps.read();
+            cPos = A * t * t / 2;
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+            break;
+        case 11:
+            t = temps.read();
+            cPos = (2 * A * tA * t) - (A * t * t / 2) - d_restante;
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+            break;
+        case 12:
+            t = temps.read();
+            break;  // Délai dans le profil triangulaire
+        case 50:
+            t = temps.read();
+            cPos = (2 * A * tA * t) - (A * t * t / 2) - d_effectue;
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+            break;
+        case 51:
+            t = temps.read();
+            break;
+        case 52:
+            break;
+        case 60:
+            t = temps.read();
+            cPos = ((A * t * t) / (-2.0)) + ((V + A * t1) * t) + ((-1 * A * t1 * t1) / 2.0) - (V * t1) + ((A * t0 * t0) / 2.0) + (V * (t1 - t0));
+            if (signe == 0)
+                cPosG = cPos / mPULSE;
+            else
+                cPosG = -1 * cPos / mPULSE;
+            if (signe == 0)
+                cPosD = cPos / mPULSE;
+            else
+                cPosD = -1 * cPos / mPULSE;
+            break;
+        case 61:
+            t = temps.read();
+            break;
+        case 62:
+            break;
+        case 100:
+            break;
+        case 200:
+            break;
+    }
+}
+
+// Fonction de débogage pour afficher l'état courant de la machine à états
+void Debugetat() {
+    printf("MAE : %d    %d    %d    %.2f  %.2f   \n\r", etat, distance_effectue, flag, d_effectue, d_restante);
+}
+
+// Fonction d'affichage d'un message CAN (pour débogage)
+void printMsg(CANMessage &msg) {
+    pc.printf("  ID      = 0x%.3x\r\n", msg.id);
+    pc.printf("  Type    = %d\r\n", msg.type);
+    pc.printf("  Format  = %d\r\n", msg.format);
+    pc.printf("  Length  = %d\r\n", msg.len);
+    pc.printf("  Data    =");
+    for (int i = 0; i < msg.len; i++) {
+        pc.printf(" 0x%.2X", msg.data[i]);
+    }
+    pc.printf("\r\n");
+}
+
+// Fonctions d'envoi de messages CAN pour indiquer la fin d'une action
+void Fini_distance(void) {
+    txMsg.clear();
+    txMsg.id = ID_carte_ENCODEUR_distance;
+    txMsg << 1;   // Envoi d'un signal indiquant la fin du déplacement
+    if (can.write(txMsg)) {
+        pc.printf("-------------------------------------\r\n");
+        pc.printf("CAN message sent\r\n");
+        printMsg(txMsg);
+        pc.printf("  Distance effectue \r\n");
+    } else
+        pc.printf("Transmission error\r\n");
+}
+
+void Fini_rot_gauche(void) {
+    txMsg.clear();
+    txMsg.id = ID_carte_ENCODEUR_rot_gauche;
+    txMsg << 1;
+    if (can.write(txMsg)) {
+        pc.printf("-------------------------------------\r\n");
+        pc.printf("CAN message sent\r\n");
+        printMsg(txMsg);
+        pc.printf("  Rotation gauche fini\r\n");
+    } else
+        pc.printf("Transmission error\r\n");
+}
+
+void Fini_rot_droite(void) {
+    txMsg.clear();
+    txMsg.id = ID_carte_ENCODEUR_rot_droite;
+    txMsg << 1;
+    if (can.write(txMsg)) {
+        pc.printf("-------------------------------------\r\n");
+        pc.printf("CAN message sent\r\n");
+        printMsg(txMsg);
+        pc.printf("  Rotation droite fini\r\n");
+    } else
+        pc.printf("Transmission error\r\n");
+}
+
+// Callback appelé lorsqu'un message CAN est reçu
+void onCanReceived(void) {
+    int counter = 0;
+    can.read(rxMsg);
+    
+    // Traitement en fonction de l'ID du message reçu
+    if (rxMsg.id == ID_carte_IHM_distance) {
+        rxMsg >> val;
+        val2 = val / 1000.0;  // Conversion en mètre
+        pc.printf(" Distance voulu = %.2f  \r\n", val2);
+        etatcan = 1;
+    }
+    if (rxMsg.id == ID_carte_IHM_rot_gauche) {
+        rxMsg >> val;
+        pc.printf("  Degre gauche voulu = %d  \r\n", val);
+        etatcan = 2;
+    }
+    if (rxMsg.id == ID_carte_IHM_rot_droite) {
+        rxMsg >> val;
+        pc.printf("  Degre droite voulu = %d  \r\n", val);
+        etatcan = 3;
+    }
+    if (rxMsg.id == ID_carte_IHM_vitesse) {
+        rxMsg >> val;
+        V = val / 1000.0;
+        pc.printf("  Vitesse max = %.3f \r\n", V);
+    }
+    if (rxMsg.id == ID_carte_IHM_acceleration) {
+        rxMsg >> val;
+        A = val / 1000.0;
+        pc.printf("  Acceleration max = %.3f \r\n", A);
+    }
+    if (rxMsg.id == ID_carte_IHM_arret) {
+        rxMsg >> val;
+        pc.printf("  Robot a l'arrêt : %d  \r\n", val);
+        etatcan = 4;
+    }
+    if (rxMsg.id == ID_carte_IHM_avance) {
+        rxMsg >> val;
+        pc.printf("  Robot avance : %d  \r\n", val);
+        etatcan = 5;
+    }
+}
+
+// Fonction d'initialisation : configure les moteurs, CAN, les interruptions, etc.
+void init() {
+    motG.period_us(T);   // Période PWM pour le moteur gauche
+    motD.period_us(T);   // Période PWM pour le moteur droit
+    mot(0, 0);           // Arrêt initial des moteurs
+
+    // Configuration du Lidar : déclenchement du flag sur front montant et descendant
+    lidar.rise(&EtatFlag1);
+    lidar.fall(&EtatFlag0);
+    
+    // Configuration des interruptions pour les encodeurs (roue gauche)
+    AG.rise(&countGr);
+    AG.fall(&countGf);
+
+    // Configuration des interruptions pour les encodeurs (roue droite)
+    AD.rise(&countDr);
+    AD.fall(&countDf);
+
+    pc.baud(9600);          // Initialisation du port série pour le débogage
+    can.frequency(1000000); // Configuration du bus CAN à 1 Mbps
+    // Attachement de la fonction de rappel pour la réception des messages CAN
+    can.attach(onCanReceived);
+}
+
+// Fonction principale
+int main() {
+    init();  // Initialisation du système
+
+    while (1) {
+        // Boucle infinie de contrôle basée sur la variable etatcan mise à jour par les messages CAN
+        switch (etatcan) {
+            case 0:
+                break;
+            case 1:
+                // Avancer sur la distance demandée
+                MAEavance(val2);
+                if (distance_effectue == 1) {
+                    etatcan = 0;
+                    distance_effectue = 0;
+                    Fini_distance();
+                }
+                break;
+            case 2:
+                // Rotation à gauche
+                rotation(val);
+                Fini_rot_gauche();
+                etatcan = 0;
+                break;
+            case 3:
+                // Rotation à droite (en passant un angle négatif)
+                rotation(-val);
+                Fini_rot_droite();
+                etatcan = 0;
+                break;
+            case 4:
+                // Arrêt d'urgence
+                tica.detach();
+                mot(0, 0);
+                etatcan = 0;
+                break;
+            case 5:
+                // Avancer avec détection de flag (exemple de roulage avec arrêt anticipé)
+                rouleflag();
+                etatcan = 0;
+                break;
+        }
+    }
+}
