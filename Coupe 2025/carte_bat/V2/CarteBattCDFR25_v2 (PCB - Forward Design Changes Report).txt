@@ -1,0 +1,15 @@
+Forward Design Changes Report
+-----------------------------
+
+Report Written:     19:07 Monday, May 19, 2025
+Design Path:        C:\Users\vermaelen\Desktop\CarteBattCDFR25_v2\CarteBattCDFR25_v2.pcb
+Design Title:       
+Created:            19/05/2025 17:09:38
+Last Saved:         19/05/2025 18:57:50
+Editing Time:       117 min
+Units:              mm (precision 1)
+
+The designs are the same, so no design changes to forward.
+
+
+End Of Report.
