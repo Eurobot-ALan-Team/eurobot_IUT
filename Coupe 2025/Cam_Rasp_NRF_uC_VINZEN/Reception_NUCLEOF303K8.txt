@@ -1,0 +1,59 @@
+#include "mbed.h"
+#include "nRF24L01P.h"  // Inclure la bibliothèque appropriée pour nRF24L01+
+#include <cstdio>
+
+
+#define TRANSFER_SIZE   32
+// Création des objets pour les pins SPI
+SPI spi(PA_7, PA_6, PA_5);  // Pins SPI : mosi, miso, sck (par exemple)
+DigitalOut csn(PA_4);        // Pin CSN
+DigitalOut ce(PA_3);         // Pin CE   // Pin IRQ
+
+// Création de l'objet nRF24L01P
+nRF24L01P nrf(PA_7, PA_6, PA_5,PA_4,PA_3,PB_0);
+Serial pc(USBTX, USBRX); // tx, rx
+int cpt = 0;
+void receiveMessage(){
+    char receive_message[TRANSFER_SIZE];
+    // Commence à envoyer le message
+    if(nrf.readable(NRF24L01P_PIPE_P0)){
+        cpt = nrf.read(NRF24L01P_PIPE_P0,receive_message,sizeof(receive_message));
+
+        pc.printf("Message recu : \n\r");
+        for ( int i = 0; cpt > 0;cpt--, i++ ) {
+
+                pc.putc(receive_message[i]);
+            }
+
+        pc.printf("\n\r");
+    }
+    else
+        printf("recoit rien\n\r");
+}
+
+
+int main() {
+    nrf.powerUp();
+    nrf.setRxAddress(0xE7E7E7E7E7,5,NRF24L01P_PIPE_P0);
+    //nrf.setRxAddress(0xF0F0F0F0E1,5,NRF24L01P_PIPE_P2);
+    nrf.setTransferSize(TRANSFER_SIZE,NRF24L01P_PIPE_P0);
+    nrf.setReceiveMode();
+    nrf.enable();
+    nrf.enableAutoAcknowledge();
+    nrf.setCrcWidth(16);
+    nrf.setAirDataRate(NRF24L01P_DATARATE_1_MBPS);
+
+
+    pc.printf( "nRF24L01+ Frequency    : %d MHz\r\n",  nrf.getRfFrequency() );
+    pc.printf( "nRF24L01+ Output power : %d dBm\r\n",  nrf.getRfOutputPower() );
+    pc.printf( "nRF24L01+ Data Rate    : %d kbps\r\n", nrf.getAirDataRate() );
+    pc.printf( "nRF24L01+ TX Address   : 0x%010llX\r\n", nrf.getTxAddress() );
+    pc.printf( "nRF24L01+ RX Address   : 0x%010llX\r\n", nrf.getRxAddress() );
+
+    while (true) {
+
+        receiveMessage();
+        wait(0.1);
+
+    }
+}

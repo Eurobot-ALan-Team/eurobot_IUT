@@ -1,0 +1,156 @@
+#Importation des Bibliotheques
+import numpy as np
+import cv2
+import cv2.aruco as aruco
+from picamera2 import Picamera2
+import RPi.GPIO as GPIO
+import spidev
+import time
+from lib_nrf24 import NRF24
+from math import *
+
+#Configuration du NRF24L01
+spi = spidev.SpiDev()
+spi.open(0,1)
+spi.max_speed_hz = 2000000
+GPIO.setmode(GPIO.BCM)
+pipes = [[0xE7,0xE7,0xE7,0xE7,0xE7],[0xF0,0xF0,0xF0,0xF0,0xF0]] #Adresse
+radio = NRF24(GPIO, spi)
+radio.begin(1,23) # BROCHES GPIO CE=1, CSN = 23
+radio.powerUp()
+radio.setPayloadSize(32) # La taille des messages sur 32 octets
+radio.setChannel(2) #Canal de communication radio
+radio.setDataRate(NRF24.BR_1MBPS) # Debit de transmission
+radio.stopListening()
+radio.ce(1)
+radio.openWrittingPipe(pipes[0]) #Ecriture vers l'adresse
+radio.printDetails()
+
+#Fonction envoie message via NRF24L01
+def envoyer_message(message):
+        message_code = list(message.encode("utf-8"))
+        while len(message_code) < 32: #Ecrire sur 32 octets
+                message_code.append(0)
+        print(f"{message_code}")
+        radio.write(message_code)
+
+#Initialisation de la camera et des parametres Aruco
+marker_size = 100
+with open('camera_cal.npy', 'rb') as f:
+	camera_matrix = np.load(f)
+	camera_distortion = np.load(f)
+
+aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_250)
+
+#Démarrage et configuration de la caméra
+picam2 = Picamera2()
+config = picam2.create_preview_configuration({"size": (820, 616)})  
+picam2.configure(config)
+picam2.start()
+picam2.set_controls({"ScalerCrop": (0, 0, 4608, 2592)})
+
+
+while True:
+	
+	#Capture d'image
+	frame = picam2.capture_array()
+	frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+	gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+#Detection des Arucos
+
+	corners, ids, rejected = aruco.detectMarkers(gray_frame, aruco_dict, camera_matrix, camera_distortion)
+
+	if ids is not None:
+
+		aruco.drawDetectedMarkers(frame, corners)
+
+		rvec, tvec, _objPoints = aruco.estimatePoseSingleMarkers(corners, marker_size, camera_matrix, camera_distortion)			
+
+		for marker in range(len(ids)):
+			marker_id = ids[marker][0]
+
+			cv2.drawFrameAxes(frame, camera_matrix, camera_distortion, rvec[marker], tvec[marker], 100)
+			cv2.putText(frame, str(ids[marker][0]) ,( int(corners[marker][0][0][0]) - 30, int(corners[marker][0][0][1])), cv2.FONT_HERSHEY_PLAIN, 3, (255, 0, 0), 2, cv2.LINE_AA)
+
+#Postion des Aruco
+			x_coord = tvec[marker][0][0]
+			y_coord = tvec[marker][0][1]*(-1) 
+
+			x_coord_format = "{:.2f}".format(x_coord)
+			y_coord_format = "{:.2f}".format(y_coord)
+#Orientation des Aruco
+			rotation_matrix, _ = cv2.Rodrigues(rvec[marker])
+			angle_2d = np.arctan2(rotation_matrix[1, 0], rotation_matrix[0, 0])
+			angle_2d_deg = np.degrees(angle_2d)
+			format_angle2d="{:.2f}".format(angle_2d_deg)
+
+#Ce qu'on va envoyer
+			tvec_str = str(int(marker_id)) + " : " +x_coord_format+"|" + y_coord_format + '\n'
+
+			send = str(int(marker_id)) + " : " +x_coord_format+"|"+ y_coord_format + "|" + format_angle2d + '\n'
+
+			if marker_id == 20:
+				print(tvec_str)
+				envoyer_message(tvec_str)
+
+			if marker_id == 21:
+				print(tvec_str)
+				envoyer_message(tvec_str)
+
+			if marker_id == 22:
+				print(tvec_str)
+				envoyer_message(tvec_str)
+
+			if marker_id == 23:
+				print(tvec_str)
+				envoyer_message(tvec_str)
+
+			if marker_id == 1:
+				print(send)
+				envoyer_message(send)
+		
+			if marker_id == 2:
+				print(send)
+				envoyer_message(send)	
+
+			if marker_id == 3:
+				print(send)
+				envoyer_message(send)	
+
+			if marker_id == 4:
+				print(send)
+				envoyer_message(send)	
+
+			if marker_id == 5:
+				print(send)
+				envoyer_message(send)	
+
+			if marker_id == 6:
+				print(send)
+				envoyer_message(send)	
+
+			if marker_id == 7:
+				print(send)
+				envoyer_message(send)
+	
+			if marker_id == 8:
+				print(send)
+				envoyer_message(send)	
+
+			if marker_id == 9:
+				print(send)
+				envoyer_message(send)	
+
+			if marker_id == 10:
+				print(send)
+				envoyer_message(send)	
+
+	cv2.imshow('frame', frame)
+
+	key = cv2.waitKey(1) & 0xFF
+	if key == ord('q'): break
+
+cv2.destroyAllWindows()
+
+
