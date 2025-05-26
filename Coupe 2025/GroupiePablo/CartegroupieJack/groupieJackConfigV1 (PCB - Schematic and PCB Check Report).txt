@@ -1,0 +1,17 @@
+Schematic and PCB Check Report
+------------------------------
+
+Report Written:     16:41 Friday, May 23, 2025
+Design Path:        C:\Users\vermaelen\Desktop\CONCOURS ROBOTIQUE\groupieJack\groupieJackConfigV1.pcb
+Design Title:       
+Created:            23/05/2025 16:35:19
+Last Saved:         23/05/2025 16:36:25
+Editing Time:       6 min
+Units:              mm (precision 0)
+
+
+Checking integrity of Schematic "C:\Users\vermaelen\Desktop\CONCOURS ROBOTIQUE\groupieJack\groupieJackConfigV1.sch" with PCB "C:\Users\vermaelen\Desktop\CONCOURS ROBOTIQUE\groupieJack\groupieJackConfigV1.pcb"
+================================================================================================================================================================================================================
+
+
+End Of Report.

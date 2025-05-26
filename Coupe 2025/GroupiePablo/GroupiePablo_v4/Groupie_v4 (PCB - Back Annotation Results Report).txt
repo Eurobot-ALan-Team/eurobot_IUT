@@ -1,0 +1,17 @@
+Back Annotation Results Report
+------------------------------
+
+Report Written:     09:09 Wednesday, May 21, 2025
+Design Path:        C:\Users\vermaelen\Desktop\PCB2025\GroupiePablo\GroupiePablo_v4\Groupie_v4.pcb
+Design Title:       
+Created:            07/03/2025 19:23:26
+Last Saved:         27/03/2025 19:12:37
+Editing Time:       10241 min
+Units:              mm (precision 1)
+
+Back Annotate renames from PCB "C:\Users\vermaelen\Desktop\PCB2025\GroupiePablo\GroupiePablo_v4\Groupie_v4.pcb" to Schematic "C:\Users\vermaelen\Desktop\PCB2025\GroupiePablo\GroupiePablo_v4\Groupie_v4.sch".
+
+Renamed Component from "U5" to "REG".
+
+
+End Of Report.

@@ -1,0 +1,94 @@
+Design Rule Check Report
+------------------------
+
+Report Written:     16:56 Friday, May 23, 2025
+Design Path:        C:\Users\vermaelen\Desktop\CONCOURS ROBOTIQUE\groupieJack\groupieJackConfigV1.pcb
+Design Title:       
+Created:            23/05/2025 16:35:19
+Last Saved:         23/05/2025 16:55:33
+Editing Time:       21 min
+Units:              mm (precision 0)
+
+
+Results
+=======
+
+Pad to Board error (P-B) between (263 260) and (264 260) on layer "[All]".
+    Error between Component Pad SW1.1 (Net 'gne') and Board, Gap is 1 needs to be 1.
+
+Pad to Board error (P-B) between (263 264) and (264 264) on layer "[All]".
+    Error between Component Pad SW1.3 (Net 'sw') and Board, Gap is 1 needs to be 1.
+
+Track to Board error (T-B) between (218 257) and (218 256) on layer "Bottom Copper".
+    Error between Track (Net '+5V') and Board, Gap is 1 needs to be 1.
+
+Track to Board error (T-B) between (250 278) and (250 279) on layer "Bottom Copper".
+    Error between Track (Net 'intes') and Board, Gap is 1 needs to be 1.
+
+Single pin net cervomot on SV1.3 at 251,266
+
+Single pin net echo on SV1.5 at 251,269
+
+Gap in Net "gne" between (256,260) and (262,260) 
+    gne.
+
+Single pin net N0000 on Pad at 220,269
+
+Gap in Net "sw" between (256,264) and (262,264) 
+    sw.
+
+Single pin net trig on SV1.6 at 248,269
+
+
+Number of errors found : 10
+
+
+Settings
+========
+
+
+Spacings
+
+=========
+
+Tracks        Yes
+Pads and Vias Yes
+Shapes        Yes
+Text          Yes
+Board         Yes
+Drills        Yes
+Components    No
+
+
+Manufacturing
+
+==============
+
+Drill Breakout                  No
+Drill Backoff                   No
+Silkscreen Overlap              No
+Copper Text In Board            No
+Min Track Width                 No
+Min Annular Ring                No
+Min Paste Size                  No
+Vias In Pads                    No
+Unplated Vias                   No
+Unplated Pads With Inner Tracks No
+
+
+Nets
+
+=====
+
+Net Completion               Yes
+Dangling Tracks              Yes
+Net Track Length Differences No
+Nets without Components      No
+Nets on No Connect pins      No
+Single Pin Net               No
+Max Vias on Net              No
+Pcb-only Nets                No
+
+
+
+End Of Report.

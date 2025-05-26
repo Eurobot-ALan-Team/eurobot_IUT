@@ -1,0 +1,15 @@
+Transfer from Schematic to PCB.
+-------------------------------
+
+Report Written:     16:35 Friday, May 23, 2025
+Design Path:        C:\Users\vermaelen\Desktop\CONCOURS ROBOTIQUE\groupieJack\groupieJackConfigV1.pcb
+Design Title:       
+Created:            23/05/2025 16:35:19
+Last Saved:         23/05/2025 16:35:27
+Editing Time:       0 min
+Units:              thou (precision 0)
+
+Could not load component "9450-1" package "9450-1" into target design.
+Could not add "S1" component "9450-1" package "9450-1" to target design.
+
+End Of Report.

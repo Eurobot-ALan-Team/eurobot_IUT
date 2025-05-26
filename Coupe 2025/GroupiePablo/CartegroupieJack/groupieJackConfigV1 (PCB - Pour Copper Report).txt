@@ -1,0 +1,13 @@
+Pour Copper Report
+------------------
+
+Report Written:     17:01 Friday, May 23, 2025
+Design Path:        C:\Users\vermaelen\Desktop\CONCOURS ROBOTIQUE\groupieJack\groupieJackConfigV1.pcb
+Design Title:       
+Created:            23/05/2025 16:35:19
+Last Saved:         23/05/2025 16:58:28
+Editing Time:       26 min
+Units:              mm (precision 0)
+
+
+End Of Report.

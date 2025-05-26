@@ -1,0 +1,28 @@
+"Report Written:","14:12 Tuesday, May 13, 2025"
+"Design Path:","C:\Users\vermaelen\Desktop\PCB2025\GroupiePablo\GroupiePablo_v4\Groupie_v4.sch"
+"Design Title:",
+"Created:",
+"Last Saved:","27/03/2025 19:12:42"
+"Editing Time:","10593 min"
+"Units:","thou (precision 2)"
+
+Bill of Materials generated with DesignSpark PCB - www.DesignSpark.com/pcb
+--------------------------------------------------------------------------
+
+
+"Ref Name","Qty","Component","Value","Package","Manufacturer","MPN","RS Part Number","Other Part Number","Description"
+"C1","1","470nF","","DSC","","","","",""
+"C2","1","470nF","","DSC","","","","",""
+"U5","1","7805","","DSC","","","","","Voltage Regulator"
+"S1","1","9450-1","","9450-1","","","","","MARQUARDT SWITCH"
+"X1","1","CON Bornier 02Ps","","W237-132","","","","","WAGO SREW CLAMP"
+"X2","1","CON Bornier 02Ps","","W237-132","","","","","WAGO SREW CLAMP"
+"X3","1","CON Bornier 02Ps","","W237-132","","","","","WAGO SREW CLAMP"
+"SV1","1","CON HE10-10p droit","","ML10","","","","","HARTING"
+"CONN1","1","CONN_SIL_3","","DIL","","","","","barrette secable"
+"SV2","1","CON_GROVE_droit","","S04P","","","","","GROVE CONNECTOR"
+"SV3","1","CON_GROVE_droit","","S04P","","","","","GROVE CONNECTOR"
+"IC1","1","L293D","","DIL16","","","","","PUSH-PULL 4 CHANNEL DRIVER"
+"U6","1","NRF24L01P-MODULE-PCB","","XCVR_NRF24L01P-MODULE-PCB","","","","",""
+"IC2","1","NUCLEO-F303K8","","DIL","","","","","Carte micro"
+"US1","1","SR04","","USER","","","","","Telemetre US"
